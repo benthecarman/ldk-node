@@ -23,6 +23,7 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::OutPoint;
 
 use std::sync::{Arc, Mutex, RwLock};
+use lightning::routing::gossip::NodeAnnouncementInfo;
 
 pub(crate) type DynStore = dyn KVStore + Sync + Send;
 
@@ -374,6 +375,9 @@ pub struct PeerDetails {
 	pub is_persisted: bool,
 	/// Indicates whether we currently have an active connection with the peer.
 	pub is_connected: bool,
+	/// Peer's announcement info if we have it.
+	/// Not available for peers synced over RGS.
+	pub announcement_info: Option<NodeAnnouncementInfo>
 }
 
 /// Options which apply on a per-channel basis.

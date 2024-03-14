@@ -1350,11 +1350,12 @@ impl Node {
 
 	/// Retrieves a list of known peers.
 	pub fn list_peers(&self) -> Vec<PeerDetails> {
-		let mut peers = Vec::new();
+		let network_graph = self.network_graph.read_only();
 
 		// First add all connected peers, preferring to list the connected address if available.
 		let connected_peers = self.peer_manager.list_peers();
 		let connected_peers_len = connected_peers.len();
+		let mut peers = Vec::with_capacity(connected_peers_len);
 		for connected_peer in connected_peers {
 			let node_id = connected_peer.counterparty_node_id;
 			let stored_peer = self.peer_store.get_peer(&node_id);
@@ -1364,10 +1365,11 @@ impl Node {
 				(None, Some(stored_addr)) => stored_addr,
 				(None, None) => continue,
 			};
+			let announcement_info = network_graph.node(&node_id.into()).and_then(|n| n.announcement_info.clone());
 
 			let is_persisted = stored_peer.is_some();
 			let is_connected = true;
-			let details = PeerDetails { node_id, address, is_persisted, is_connected };
+			let details = PeerDetails { node_id, address, is_persisted, is_connected, announcement_info };
 			peers.push(details);
 		}
 
@@ -1376,12 +1378,14 @@ impl Node {
 			if peers.iter().take(connected_peers_len).find(|d| d.node_id == p.node_id).is_some() {
 				continue;
 			}
+			let announcement_info = network_graph.node(&p.node_id.into()).and_then(|n| n.announcement_info.clone());
 
 			let details = PeerDetails {
 				node_id: p.node_id,
 				address: p.address,
 				is_persisted: true,
 				is_connected: false,
+				announcement_info,
 			};
 
 			peers.push(details);
