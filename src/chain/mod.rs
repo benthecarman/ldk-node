@@ -242,8 +242,8 @@ impl ChainSource {
 		let mut client_builder_0_11 = esplora_client_0_11::Builder::new(&server_url);
 		client_builder_0_11 = client_builder_0_11.timeout(DEFAULT_ESPLORA_CLIENT_TIMEOUT_SECS);
 
-		for (header_name, header_value) in headers {
-			client_builder_0_11 = client_builder_0_11.header(&header_name, &header_value);
+		for (header_name, header_value) in &headers {
+			client_builder_0_11 = client_builder_0_11.header(header_name, header_value);
 		}
 
 		let esplora_client_0_11 = client_builder_0_11.build_async().unwrap();
@@ -252,6 +252,11 @@ impl ChainSource {
 
 		let mut client_builder = esplora_client::Builder::new(&server_url);
 		client_builder = client_builder.timeout(DEFAULT_ESPLORA_CLIENT_TIMEOUT_SECS);
+
+		for (header_name, header_value) in headers {
+			client_builder = client_builder.header(&header_name, &header_value);
+		}
+
 		let esplora_client = client_builder.build_async().unwrap();
 
 		let onchain_wallet_sync_status = Mutex::new(WalletSyncStatus::Completed);
