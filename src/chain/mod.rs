@@ -1179,7 +1179,8 @@ impl ChainSource {
 				.map_err(|e| {
 					log_error!(logger, "Failed to retrieve fee rate estimates: {}", e);
 					Error::FeerateEstimationUpdateFailed
-				})?;
+				})
+				.unwrap_or_default();
 
 				if estimates.is_empty() && config.network == Network::Bitcoin {
 					// Ensure we fail if we didn't receive any estimates.
