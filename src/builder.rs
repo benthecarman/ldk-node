@@ -84,9 +84,21 @@ const LSPS_HARDENED_CHILD_INDEX: u32 = 577;
 
 #[derive(Debug, Clone)]
 enum ChainDataSourceConfig {
-	Esplora { server_url: String, sync_config: Option<EsploraSyncConfig> },
-	Electrum { server_url: String, sync_config: Option<ElectrumSyncConfig> },
-	BitcoindRpc { rpc_host: String, rpc_port: u16, rpc_user: String, rpc_password: String },
+	Esplora {
+		server_url: String,
+		headers: HashMap<String, String>,
+		sync_config: Option<EsploraSyncConfig>,
+	},
+	Electrum {
+		server_url: String,
+		sync_config: Option<ElectrumSyncConfig>,
+	},
+	BitcoindRpc {
+		rpc_host: String,
+		rpc_port: u16,
+		rpc_user: String,
+		rpc_password: String,
+	},
 }
 
 #[derive(Debug, Clone)]
@@ -282,8 +294,26 @@ impl NodeBuilder {
 	pub fn set_chain_source_esplora(
 		&mut self, server_url: String, sync_config: Option<EsploraSyncConfig>,
 	) -> &mut Self {
+		self.chain_data_source_config = Some(ChainDataSourceConfig::Esplora {
+			server_url,
+			headers: Default::default(),
+			sync_config,
+		});
+		self
+	}
+
+	/// Configures the [`Node`] instance to source its chain data from the given Esplora server.
+	/// The given `headers` will be included in all requests to the Esplora server, typically used for
+	/// authentication purposes.
+	///
+	/// If no `sync_config` is given, default values are used. See [`EsploraSyncConfig`] for more
+	/// information.
+	pub fn set_chain_source_esplora_with_headers(
+		&mut self, server_url: String, headers: HashMap<String, String>,
+		sync_config: Option<EsploraSyncConfig>,
+	) -> &mut Self {
 		self.chain_data_source_config =
-			Some(ChainDataSourceConfig::Esplora { server_url, sync_config });
+			Some(ChainDataSourceConfig::Esplora { server_url, headers, sync_config });
 		self
 	}
 
@@ -1042,10 +1072,11 @@ fn build_with_store_internal(
 	));
 
 	let chain_source = match chain_data_source_config {
-		Some(ChainDataSourceConfig::Esplora { server_url, sync_config }) => {
+		Some(ChainDataSourceConfig::Esplora { server_url, headers, sync_config }) => {
 			let sync_config = sync_config.unwrap_or(EsploraSyncConfig::default());
 			Arc::new(ChainSource::new_esplora(
 				server_url.clone(),
+				headers.clone(),
 				sync_config,
 				Arc::clone(&wallet),
 				Arc::clone(&fee_estimator),
@@ -1091,6 +1122,7 @@ fn build_with_store_internal(
 			let sync_config = EsploraSyncConfig::default();
 			Arc::new(ChainSource::new_esplora(
 				server_url.clone(),
+				Default::default(),
 				sync_config,
 				Arc::clone(&wallet),
 				Arc::clone(&fee_estimator),
