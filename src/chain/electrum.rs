@@ -242,18 +242,9 @@ impl ElectrumRuntimeClient {
 
 		let raw_estimates_btc_kvb = timeout_fut
 			.await
-			.map_err(|e| {
-				log_error!(self.logger, "Updating fee rate estimates timed out: {}", e);
-				Error::FeerateEstimationUpdateTimeout
-			})?
-			.map_err(|e| {
-				log_error!(self.logger, "Failed to retrieve fee rate estimates: {}", e);
-				Error::FeerateEstimationUpdateFailed
-			})?
-			.map_err(|e| {
-				log_error!(self.logger, "Failed to retrieve fee rate estimates: {}", e);
-				Error::FeerateEstimationUpdateFailed
-			})?;
+			.unwrap_or(Ok(Ok(vec![])))
+			.unwrap_or(Ok(vec![]))
+			.unwrap_or_default();
 
 		if raw_estimates_btc_kvb.len() != confirmation_targets.len()
 			&& self.config.network == Network::Bitcoin
