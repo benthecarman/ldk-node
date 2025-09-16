@@ -24,6 +24,7 @@ use crate::io::{
 use crate::liquidity::{
 	LSPS1ClientConfig, LSPS2ClientConfig, LSPS2ServiceConfig, LiquiditySourceBuilder,
 };
+use crate::lnurl_auth::LnurlAuth;
 use crate::logger::{log_error, log_info, LdkLogger, LogLevel, LogWriter, Logger};
 use crate::message_handler::NodeCustomMessageHandler;
 use crate::peer_store::PeerStore;
@@ -1526,6 +1527,8 @@ fn build_with_store_internal(
 		},
 	};
 
+	let lnurl_auth = LnurlAuth::from_keys_manager(&keys_manager, Arc::clone(&logger));
+
 	let (stop_sender, _) = tokio::sync::watch::channel(());
 	let background_processor_task = Mutex::new(None);
 	let background_tasks = Mutex::new(None);
@@ -1558,6 +1561,7 @@ fn build_with_store_internal(
 		scorer,
 		peer_store,
 		payment_store,
+		lnurl_auth,
 		is_listening,
 		node_metrics,
 	})

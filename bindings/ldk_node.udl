@@ -302,6 +302,8 @@ enum NodeError {
 	"InsufficientFunds",
 	"LiquiditySourceUnavailable",
 	"LiquidityFeeTooHigh",
+	"LnurlAuthFailed",
+	"InvalidLnurl",
 };
 
 dictionary NodeStatus {

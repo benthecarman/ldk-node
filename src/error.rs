@@ -120,6 +120,10 @@ pub enum Error {
 	LiquiditySourceUnavailable,
 	/// The given operation failed due to the LSP's required opening fee being too high.
 	LiquidityFeeTooHigh,
+	/// LNURL-auth authentication failed.
+	LnurlAuthFailed,
+	/// The provided lnurl is invalid.
+	InvalidLnurl,
 }
 
 impl fmt::Display for Error {
@@ -193,6 +197,8 @@ impl fmt::Display for Error {
 			Self::LiquidityFeeTooHigh => {
 				write!(f, "The given operation failed due to the LSP's required opening fee being too high.")
 			},
+			Self::LnurlAuthFailed => write!(f, "LNURL-auth authentication failed."),
+			Self::InvalidLnurl => write!(f, "The provided lnurl is invalid."),
 		}
 	}
 }
