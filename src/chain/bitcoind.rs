@@ -147,6 +147,19 @@ impl BitcoindChainSource {
 		const MAX_BACKOFF_SECS: u64 = 300;
 
 		loop {
+			// Check for stop signal at the beginning of each iteration
+			tokio::select! {
+				biased;
+				_ = stop_sync_receiver.changed() => {
+					log_trace!(
+						self.logger,
+						"Stopping initial chain sync.",
+					);
+					return;
+				}
+				_ = async {} => {}
+			}
+
 			let channel_manager_best_block_hash = channel_manager.current_best_block().block_hash;
 			let sweeper_best_block_hash = output_sweeper.current_best_block().block_hash;
 			let onchain_wallet_best_block_hash =
@@ -226,7 +239,18 @@ impl BitcoindChainSource {
 									e,
 									backoff
 								);
-						tokio::time::sleep(Duration::from_secs(backoff)).await;
+						// Sleep with stop signal check to allow immediate shutdown
+						tokio::select! {
+							biased;
+							_ = stop_sync_receiver.changed() => {
+								log_trace!(
+									self.logger,
+									"Stopping initial chain sync during backoff.",
+								);
+								return;
+							}
+							_ = tokio::time::sleep(Duration::from_secs(backoff)) => {}
+						}
 						backoff = std::cmp::min(backoff * 2, MAX_BACKOFF_SECS);
 					} else {
 						log_error!(
@@ -235,7 +259,18 @@ impl BitcoindChainSource {
 									e,
 									MAX_BACKOFF_SECS
 								);
-						tokio::time::sleep(Duration::from_secs(MAX_BACKOFF_SECS)).await;
+						// Sleep with stop signal check to allow immediate shutdown
+						tokio::select! {
+							biased;
+							_ = stop_sync_receiver.changed() => {
+								log_trace!(
+									self.logger,
+									"Stopping initial chain sync during backoff.",
+								);
+								return;
+							}
+							_ = tokio::time::sleep(Duration::from_secs(MAX_BACKOFF_SECS)) => {}
+						}
 					}
 				},
 			}
@@ -260,6 +295,8 @@ impl BitcoindChainSource {
 		let mut last_best_block_hash = None;
 		loop {
 			tokio::select! {
+				biased;
+
 				_ = stop_sync_receiver.changed() => {
 					log_trace!(
 						self.logger,
@@ -268,17 +305,43 @@ impl BitcoindChainSource {
 					return;
 				}
 				_ = chain_polling_interval.tick() => {
-					let _ = self.poll_and_update_listeners(
-						Arc::clone(&channel_manager),
-						Arc::clone(&chain_monitor),
-						Arc::clone(&output_sweeper)
-					).await;
+					tokio::select! {
+						biased;
+						_ = stop_sync_receiver.changed() => {
+							log_trace!(
+								self.logger,
+								"Stopping polling for new chain data.",
+							);
+							return;
+						}
+						res = self.poll_and_update_listeners(
+							Arc::clone(&channel_manager),
+							Arc::clone(&chain_monitor),
+							Arc::clone(&output_sweeper)
+						) => {
+							let _ = res;
+						}
+					}
 				}
 				_ = fee_rate_update_interval.tick() => {
-					if last_best_block_hash != Some(channel_manager.current_best_block().block_hash) {
-						let update_res = self.update_fee_rate_estimates().await;
-						if update_res.is_ok() {
-							last_best_block_hash = Some(channel_manager.current_best_block().block_hash);
+					tokio::select! {
+						biased;
+						_ = stop_sync_receiver.changed() => {
+							log_trace!(
+								self.logger,
+								"Stopping polling for new chain data.",
+							);
+							return;
+						}
+						res = async {
+							if last_best_block_hash != Some(channel_manager.current_best_block().block_hash) {
+								let update_res = self.update_fee_rate_estimates().await;
+								if update_res.is_ok() {
+									last_best_block_hash = Some(channel_manager.current_best_block().block_hash);
+								}
+							}
+						} => {
+							let _ = res;
 						}
 					}
 				}
