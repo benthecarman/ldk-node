@@ -19,6 +19,7 @@ use lightning::events::{
 	ClosureReason, Event as LdkEvent, PaymentFailureReason, PaymentPurpose, ReplayEvent,
 };
 use lightning::impl_writeable_tlv_based_enum;
+use lightning::ln::chan_utils::make_funding_redeemscript;
 use lightning::ln::channelmanager::PaymentId;
 use lightning::ln::types::ChannelId;
 use lightning::routing::gossip::NodeId;
@@ -1361,6 +1362,41 @@ where
 					channel_id,
 					counterparty_node_id,
 				);
+
+				let chans =
+					self.channel_manager.list_channels_with_counterparty(&counterparty_node_id);
+				let chan = chans.iter().find(|c| c.user_channel_id == user_channel_id);
+				match chan {
+					None => {
+						log_error!(
+							self.logger,
+							"Failed to find channel info for pending channel {} with counterparty {}",
+							channel_id,
+							counterparty_node_id,
+						);
+						return Err(ReplayEvent());
+					},
+					Some(chan) => {
+						let output = bitcoin::TxOut {
+							value: Amount::from_sat(chan.channel_value_satoshis),
+							// dummy script_pubkey, as we don't have access to the actual one here and don't explicitly need it
+							script_pubkey: make_funding_redeemscript(
+								&PublicKey::from_slice(&[2; 33]).unwrap(),
+								&PublicKey::from_slice(&[2; 33]).unwrap(),
+							)
+							.to_p2wsh(),
+						};
+
+						if let Err(e) = self.wallet.insert_txo(funding_txo, output) {
+							log_error!(
+								self.logger,
+								"Failed to insert funding TXO into wallet: {}",
+								e
+							);
+							return Err(ReplayEvent());
+						}
+					},
+				}
 
 				let event = Event::ChannelPending {
 					channel_id,
