@@ -179,6 +179,8 @@ interface Node {
 	void remove_payment([ByRef]PaymentId payment_id);
 	BalanceDetails list_balances();
 	sequence<PaymentDetails> list_payments();
+	ForwardedPaymentDetails? forwarded_payment([ByRef]ForwardedPaymentId forwarded_payment_id);
+	sequence<ForwardedPaymentDetails> list_forwarded_payments();
 	sequence<PeerDetails> list_peers();
 	sequence<ChannelDetails> list_channels();
 	NetworkGraph network_graph();
@@ -495,6 +497,21 @@ dictionary PaymentDetails {
 	PaymentDirection direction;
 	PaymentStatus status;
 	u64 latest_update_timestamp;
+};
+
+dictionary ForwardedPaymentDetails {
+	ForwardedPaymentId id;
+	ChannelId prev_channel_id;
+	ChannelId next_channel_id;
+	UserChannelId? prev_user_channel_id;
+	UserChannelId? next_user_channel_id;
+	PublicKey? prev_node_id;
+	PublicKey? next_node_id;
+	u64? total_fee_earned_msat;
+	u64? skimmed_fee_msat;
+	boolean claim_from_onchain_tx;
+	u64? outbound_amount_forwarded_msat;
+	u64 forwarded_at_timestamp;
 };
 
 dictionary RouteParametersConfig {
@@ -883,6 +900,9 @@ typedef string OfferId;
 
 [Custom]
 typedef string PaymentId;
+
+[Custom]
+typedef string ForwardedPaymentId;
 
 [Custom]
 typedef string PaymentHash;

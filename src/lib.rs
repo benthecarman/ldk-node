@@ -153,16 +153,16 @@ use logger::{log_debug, log_error, log_info, log_trace, LdkLogger, Logger};
 use payment::asynchronous::om_mailbox::OnionMessageMailbox;
 use payment::asynchronous::static_invoice_store::StaticInvoiceStore;
 use payment::{
-	Bolt11Payment, Bolt12Payment, OnchainPayment, PaymentDetails, SpontaneousPayment,
-	UnifiedPayment,
+	Bolt11Payment, Bolt12Payment, ForwardedPaymentDetails, ForwardedPaymentId, OnchainPayment,
+	PaymentDetails, SpontaneousPayment, UnifiedPayment,
 };
 use peer_store::{PeerInfo, PeerStore};
 use rand::Rng;
 use runtime::Runtime;
 use types::{
-	Broadcaster, BumpTransactionEventHandler, ChainMonitor, ChannelManager, DynStore, Graph,
-	HRNResolver, KeysManager, OnionMessenger, PaymentStore, PeerManager, Router, Scorer, Sweeper,
-	Wallet,
+	Broadcaster, BumpTransactionEventHandler, ChainMonitor, ChannelManager, DynStore,
+	ForwardedPaymentStore, Graph, HRNResolver, KeysManager, OnionMessenger, PaymentStore,
+	PeerManager, Router, Scorer, Sweeper, Wallet,
 };
 pub use types::{ChannelDetails, CustomTlvRecord, PeerDetails, SyncAndAsyncKVStore, UserChannelId};
 pub use {
@@ -222,6 +222,7 @@ pub struct Node {
 	scorer: Arc<Mutex<Scorer>>,
 	peer_store: Arc<PeerStore<Arc<Logger>>>,
 	payment_store: Arc<PaymentStore>,
+	forwarded_payment_store: Arc<ForwardedPaymentStore>,
 	is_running: Arc<RwLock<bool>>,
 	node_metrics: Arc<RwLock<NodeMetrics>>,
 	om_mailbox: Option<Arc<OnionMessageMailbox>>,
@@ -573,6 +574,7 @@ impl Node {
 			Arc::clone(&self.network_graph),
 			self.liquidity_source.clone(),
 			Arc::clone(&self.payment_store),
+			Arc::clone(&self.forwarded_payment_store),
 			Arc::clone(&self.peer_store),
 			static_invoice_store,
 			Arc::clone(&self.onion_messenger),
@@ -1690,6 +1692,34 @@ impl Node {
 	/// Retrieves all payments.
 	pub fn list_payments(&self) -> Vec<PaymentDetails> {
 		self.payment_store.list_filter(|_| true)
+	}
+
+	/// Retrieve the details of a specific forwarded payment with the given id.
+	///
+	/// Returns `Some` if the forwarded payment was known and `None` otherwise.
+	pub fn forwarded_payment(
+		&self, forwarded_payment_id: &ForwardedPaymentId,
+	) -> Option<ForwardedPaymentDetails> {
+		self.forwarded_payment_store.get(forwarded_payment_id)
+	}
+
+	/// Retrieves all forwarded payments that match the given predicate.
+	///
+	/// For example, to list all forwarded payments that earned at least 1000 msat in fees:
+	/// ```ignore
+	/// node.list_forwarded_payments_with_filter(|p| {
+	///     p.total_fee_earned_msat.unwrap_or(0) >= 1000
+	/// });
+	/// ```
+	pub fn list_forwarded_payments_with_filter<F: FnMut(&&ForwardedPaymentDetails) -> bool>(
+		&self, f: F,
+	) -> Vec<ForwardedPaymentDetails> {
+		self.forwarded_payment_store.list_filter(f)
+	}
+
+	/// Retrieves all forwarded payments.
+	pub fn list_forwarded_payments(&self) -> Vec<ForwardedPaymentDetails> {
+		self.forwarded_payment_store.list_filter(|_| true)
 	}
 
 	/// Retrieves a list of known peers.

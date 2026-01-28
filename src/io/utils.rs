@@ -46,7 +46,7 @@ use crate::io::{
 	NODE_METRICS_KEY, NODE_METRICS_PRIMARY_NAMESPACE, NODE_METRICS_SECONDARY_NAMESPACE,
 };
 use crate::logger::{log_error, LdkLogger, Logger};
-use crate::payment::PendingPaymentDetails;
+use crate::payment::{ForwardedPaymentDetails, PendingPaymentDetails};
 use crate::peer_store::PeerStore;
 use crate::types::{Broadcaster, DynStore, KeysManager, Sweeper};
 use crate::wallet::ser::{ChangeSetDeserWrapper, ChangeSetSerWrapper};
@@ -300,6 +300,22 @@ where
 		logger,
 		PAYMENT_INFO_PERSISTENCE_PRIMARY_NAMESPACE,
 		PAYMENT_INFO_PERSISTENCE_SECONDARY_NAMESPACE,
+	)
+	.await
+}
+
+/// Read previously persisted forwarded payments information from the store.
+pub(crate) async fn read_forwarded_payments<L: Deref>(
+	kv_store: &DynStore, logger: L,
+) -> Result<Vec<ForwardedPaymentDetails>, std::io::Error>
+where
+	L::Target: LdkLogger,
+{
+	read_objects_from_store(
+		kv_store,
+		logger,
+		FORWARDED_PAYMENT_INFO_PERSISTENCE_PRIMARY_NAMESPACE,
+		FORWARDED_PAYMENT_INFO_PERSISTENCE_SECONDARY_NAMESPACE,
 	)
 	.await
 }

@@ -7,9 +7,11 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::{BlockHash, Txid};
 use lightning::ln::channelmanager::PaymentId;
 use lightning::ln::msgs::DecodeError;
+use lightning::ln::types::ChannelId;
 use lightning::offers::offer::OfferId;
 use lightning::util::ser::{Readable, Writeable};
 use lightning::{
@@ -21,6 +23,7 @@ use lightning_types::string::UntrustedString;
 
 use crate::data_store::{StorableObject, StorableObjectId, StorableObjectUpdate};
 use crate::hex_utils;
+use crate::types::UserChannelId;
 
 /// Represents a payment.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -760,5 +763,129 @@ mod tests {
 				},
 			}
 		}
+	}
+}
+
+/// A unique identifier for a forwarded payment.
+///
+/// This will be a randomly generated 32-byte identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ForwardedPaymentId(pub [u8; 32]);
+
+impl StorableObjectId for ForwardedPaymentId {
+	fn encode_to_hex_str(&self) -> String {
+		hex_utils::to_string(&self.0)
+	}
+}
+
+impl Writeable for ForwardedPaymentId {
+	fn write<W: lightning::util::ser::Writer>(
+		&self, writer: &mut W,
+	) -> Result<(), lightning::io::Error> {
+		self.0.write(writer)
+	}
+}
+
+impl Readable for ForwardedPaymentId {
+	fn read<R: lightning::io::Read>(reader: &mut R) -> Result<Self, DecodeError> {
+		Ok(Self(Readable::read(reader)?))
+	}
+}
+
+/// Details of a payment that has been forwarded through this node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForwardedPaymentDetails {
+	/// A unique identifier for this forwarded payment.
+	pub id: ForwardedPaymentId,
+	/// The channel id of the incoming channel between the previous node and us.
+	pub prev_channel_id: ChannelId,
+	/// The channel id of the outgoing channel between the next node and us.
+	pub next_channel_id: ChannelId,
+	/// The `user_channel_id` of the incoming channel between the previous node and us.
+	///
+	/// This is only None for events generated or serialized by versions prior to 0.3.0.
+	pub prev_user_channel_id: Option<UserChannelId>,
+	/// The `user_channel_id` of the outgoing channel between the next node and us.
+	///
+	/// This will be `None` if the payment was settled via an on-chain transaction or if the
+	/// event was generated or serialized by versions prior to 0.3.0.
+	pub next_user_channel_id: Option<UserChannelId>,
+	/// The node id of the previous node.
+	pub prev_node_id: Option<PublicKey>,
+	/// The node id of the next node.
+	pub next_node_id: Option<PublicKey>,
+	/// The total fee, in milli-satoshis, which was earned as a result of the payment.
+	///
+	/// Note that if we force-closed the channel over which we forwarded an HTLC while the HTLC
+	/// was pending, the amount the next hop claimed will have been rounded down to the nearest
+	/// whole satoshi. Thus, the fee calculated here may be higher than expected as we still
+	/// claimed the full value in millisatoshis from the source.
+	///
+	/// If the channel which sent us the payment has been force-closed, we will claim the funds
+	/// via an on-chain transaction. In that case we do not yet know the on-chain transaction
+	/// fees which we will spend and will instead set this to `None`. It is possible duplicate
+	/// `PaymentForwarded` events are generated for the same payment iff `total_fee_earned_msat`
+	/// is `None`.
+	pub total_fee_earned_msat: Option<u64>,
+	/// The share of the total fee, in milli-satoshis, which was withheld in addition to the
+	/// forwarding fee.
+	///
+	/// This will be `None` if no fee was skimmed from the forwarded HTLC.
+	pub skimmed_fee_msat: Option<u64>,
+	/// If this is `true`, the forwarded HTLC was claimed by our counterparty via an on-chain
+	/// transaction.
+	pub claim_from_onchain_tx: bool,
+	/// The final amount forwarded, in milli-satoshis, after the fee is deducted.
+	///
+	/// The caveat described above the total_fee_earned_msat field applies here as well.
+	pub outbound_amount_forwarded_msat: Option<u64>,
+	/// The timestamp, in seconds since start of the UNIX epoch, when the payment was forwarded.
+	pub forwarded_at_timestamp: u64,
+}
+
+impl_writeable_tlv_based!(ForwardedPaymentDetails, {
+	(0, id, required),
+	(2, prev_channel_id, required),
+	(4, next_channel_id, required),
+	(6, prev_user_channel_id, option),
+	(8, next_user_channel_id, option),
+	(10, prev_node_id, option),
+	(12, next_node_id, option),
+	(14, total_fee_earned_msat, option),
+	(16, skimmed_fee_msat, option),
+	(18, claim_from_onchain_tx, required),
+	(20, outbound_amount_forwarded_msat, option),
+	(22, forwarded_at_timestamp, required),
+});
+
+/// A no-op update type for [`ForwardedPaymentDetails`].
+///
+/// Forwarded payments are immutable once stored, so updates are not supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ForwardedPaymentDetailsUpdate {
+	id: ForwardedPaymentId,
+}
+
+impl StorableObjectUpdate<ForwardedPaymentDetails> for ForwardedPaymentDetailsUpdate {
+	fn id(&self) -> ForwardedPaymentId {
+		self.id
+	}
+}
+
+impl StorableObject for ForwardedPaymentDetails {
+	type Id = ForwardedPaymentId;
+	type Update = ForwardedPaymentDetailsUpdate;
+
+	fn id(&self) -> Self::Id {
+		self.id
+	}
+
+	fn update(&mut self, _update: &Self::Update) -> bool {
+		// Forwarded payments are immutable, so updates are no-ops.
+		false
+	}
+
+	fn to_update(&self) -> Self::Update {
+		ForwardedPaymentDetailsUpdate { id: self.id }
 	}
 }

@@ -54,9 +54,10 @@ pub use crate::graph::{ChannelInfo, ChannelUpdateInfo, NodeAnnouncementInfo, Nod
 pub use crate::liquidity::{LSPS1OrderStatus, LSPS2ServiceConfig};
 pub use crate::logger::{LogLevel, LogRecord, LogWriter};
 pub use crate::payment::store::{
-	ConfirmationStatus, LSPFeeLimits, PaymentDirection, PaymentKind, PaymentStatus,
+	ConfirmationStatus, ForwardedPaymentId, LSPFeeLimits, PaymentDirection, PaymentKind,
+	PaymentStatus,
 };
-pub use crate::payment::UnifiedPaymentResult;
+pub use crate::payment::{ForwardedPaymentDetails, UnifiedPaymentResult};
 use crate::{hex_utils, SocketAddress, UniffiCustomTypeConverter, UserChannelId};
 
 impl UniffiCustomTypeConverter for PublicKey {
@@ -712,6 +713,24 @@ impl UniffiCustomTypeConverter for PaymentId {
 			let bytes_res = bytes_vec.try_into();
 			if let Ok(bytes) = bytes_res {
 				return Ok(PaymentId(bytes));
+			}
+		}
+		Err(Error::InvalidPaymentId.into())
+	}
+
+	fn from_custom(obj: Self) -> Self::Builtin {
+		hex_utils::to_string(&obj.0)
+	}
+}
+
+impl UniffiCustomTypeConverter for ForwardedPaymentId {
+	type Builtin = String;
+
+	fn into_custom(val: Self::Builtin) -> uniffi::Result<Self> {
+		if let Some(bytes_vec) = hex_utils::to_vec(&val) {
+			let bytes_res = bytes_vec.try_into();
+			if let Ok(bytes) = bytes_res {
+				return Ok(ForwardedPaymentId(bytes));
 			}
 		}
 		Err(Error::InvalidPaymentId.into())
