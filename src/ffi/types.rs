@@ -46,6 +46,7 @@ pub use lightning_liquidity::lsps1::msgs::{
 };
 pub use lightning_types::payment::{PaymentHash, PaymentPreimage, PaymentSecret};
 pub use lightning_types::string::UntrustedString;
+
 use vss_client::headers::{
 	VssHeaderProvider as VssClientHeaderProvider,
 	VssHeaderProviderError as VssClientHeaderProviderError,
