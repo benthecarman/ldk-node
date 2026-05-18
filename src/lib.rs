@@ -1582,6 +1582,14 @@ impl Node {
 					Error::ChannelSplicingFailed
 				})?;
 
+			if funding_template.prior_contribution().is_some() {
+				log_error!(
+					self.logger,
+					"Failed to splice channel: a prior splice contribution is pending"
+				);
+				return Err(Error::ChannelSplicingFailed);
+			}
+
 			let contribution = self
 				.runtime
 				.block_on(funding_template.splice_in(
@@ -1699,6 +1707,14 @@ impl Node {
 				value: Amount::from_sat(splice_amount_sats),
 				script_pubkey: address.script_pubkey(),
 			}];
+			if funding_template.prior_contribution().is_some() {
+				log_error!(
+					self.logger,
+					"Failed to splice channel: a prior splice contribution is pending"
+				);
+				return Err(Error::ChannelSplicingFailed);
+			}
+
 			let contribution =
 				funding_template.splice_out(outputs, min_feerate, max_feerate).map_err(|e| {
 					log_error!(self.logger, "Failed to splice channel: {}", e);
