@@ -24,7 +24,7 @@ use lightning::ln::channelmanager::PaymentId;
 use lightning::routing::router::RouteParametersConfig;
 use lightning_invoice::{Bolt11InvoiceDescription, Description};
 
-use crate::common::{open_channel_push_amt, TestChainSource, TestStoreType};
+use crate::common::{open_channel_push_amt, TestChainSource, TestConfig, TestStoreType};
 
 #[derive(Clone, Copy)]
 struct StoreBenchConfig {
@@ -35,6 +35,7 @@ struct StoreBenchConfig {
 fn operations_benchmark(c: &mut Criterion) {
 	forwarding_benchmark(c);
 	channel_open_benchmark(c);
+	startup_benchmark(c);
 }
 
 fn forwarding_benchmark(c: &mut Criterion) {
@@ -129,6 +130,97 @@ fn channel_open_benchmark(c: &mut Criterion) {
 			});
 		});
 	}
+}
+
+fn startup_benchmark(c: &mut Criterion) {
+	let (bitcoind, electrsd) = setup_bitcoind_and_electrsd();
+	let chain_source = random_chain_source(&bitcoind, &electrsd);
+	let runtime =
+		tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+
+	let mut group = c.benchmark_group("startup");
+	group.sample_size(10);
+
+	for store_config in store_bench_configs() {
+		if !should_register_bench("startup", store_config.name) {
+			continue;
+		}
+		let config = setup_startup_seed_node(
+			&chain_source,
+			&bitcoind,
+			&electrsd,
+			store_config.store_type,
+			&runtime,
+		);
+
+		group.bench_function(store_config.name, |b| {
+			b.iter_custom(|iter| {
+				let mut total = Duration::ZERO;
+				for _ in 0..iter {
+					let start = Instant::now();
+					let node = setup_node(&chain_source, config.clone());
+					total += start.elapsed();
+					node.stop().unwrap();
+				}
+				total
+			});
+		});
+	}
+}
+
+fn setup_startup_seed_node(
+	chain_source: &TestChainSource, bitcoind: &BitcoinD, electrsd: &electrsd::ElectrsD,
+	store_type: TestStoreType, runtime: &tokio::runtime::Runtime,
+) -> TestConfig {
+	let mut config_a = random_config(true);
+	config_a.store_type = store_type;
+	let node_a = Arc::new(setup_node(chain_source, config_a.clone()));
+
+	let mut config_b = random_config(true);
+	config_b.store_type = store_type;
+	let node_b = Arc::new(setup_node(chain_source, config_b));
+
+	runtime.block_on(async {
+		let address_a = node_a.onchain_payment().new_address().unwrap();
+		premine_and_distribute_funds(
+			&bitcoind.client,
+			&electrsd.client,
+			vec![address_a],
+			Amount::from_sat(5_000_000),
+		)
+		.await;
+		node_a.sync_wallets().unwrap();
+		node_b.sync_wallets().unwrap();
+
+		open_channel_push_amt(&node_a, &node_b, 1_000_000, Some(500_000_000), false, electrsd)
+			.await;
+		generate_blocks_and_wait(&bitcoind.client, &electrsd.client, 6).await;
+		node_a.sync_wallets().unwrap();
+		node_b.sync_wallets().unwrap();
+
+		expect_channel_ready_event!(node_a, node_b.node_id());
+		expect_channel_ready_event!(node_b, node_a.node_id());
+
+		for description in ["startup seed 1", "startup seed 2"] {
+			let invoice_description = Bolt11InvoiceDescription::Direct(
+				Description::new(description.to_string()).unwrap(),
+			);
+			let invoice = node_b
+				.bolt11_payment()
+				.receive(1_000_000, &invoice_description.into(), 9217)
+				.unwrap();
+			let payment_id = node_a.bolt11_payment().send(&invoice, None).unwrap();
+			wait_for_payment_success(&node_a, payment_id).await;
+		}
+
+		drain_events(&node_a);
+		drain_events(&node_b);
+	});
+
+	node_a.stop().unwrap();
+	node_b.stop().unwrap();
+
+	config_a
 }
 
 fn should_register_bench(group: &str, name: &str) -> bool {
