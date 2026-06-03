@@ -727,13 +727,18 @@ impl NodeBuilder {
 		fixed_headers: HashMap<String, String>,
 	) -> Result<Node, BuildError> {
 		let logger = setup_logger(&self.log_writer_config, &self.config)?;
+		let runtime = self.setup_runtime(&logger)?;
 		let builder = VssStoreBuilder::new(node_entropy, vss_url, store_id, self.config.network);
 		let vss_store = builder.build_with_sigs_auth(fixed_headers).map_err(|e| {
 			log_error!(logger, "Failed to setup VSS store: {}", e);
 			BuildError::KVStoreSetupFailed
 		})?;
+		runtime.block_on(vss_store.setup_schema_version()).map_err(|e| {
+			log_error!(logger, "Failed to setup VSS store: {}", e);
+			BuildError::KVStoreSetupFailed
+		})?;
 
-		self.build_with_store_and_logger(node_entropy, vss_store, logger)
+		self.build_with_store_runtime_and_logger(node_entropy, vss_store, runtime, logger)
 	}
 
 	/// Builds a [`Node`] instance with a [VSS] backend and according to the options
@@ -763,14 +768,19 @@ impl NodeBuilder {
 		lnurl_auth_server_url: String, fixed_headers: HashMap<String, String>,
 	) -> Result<Node, BuildError> {
 		let logger = setup_logger(&self.log_writer_config, &self.config)?;
+		let runtime = self.setup_runtime(&logger)?;
 		let builder = VssStoreBuilder::new(node_entropy, vss_url, store_id, self.config.network);
 		let vss_store =
 			builder.build_with_lnurl(lnurl_auth_server_url, fixed_headers).map_err(|e| {
 				log_error!(logger, "Failed to setup VSS store: {}", e);
 				BuildError::KVStoreSetupFailed
 			})?;
+		runtime.block_on(vss_store.setup_schema_version()).map_err(|e| {
+			log_error!(logger, "Failed to setup VSS store: {}", e);
+			BuildError::KVStoreSetupFailed
+		})?;
 
-		self.build_with_store_and_logger(node_entropy, vss_store, logger)
+		self.build_with_store_runtime_and_logger(node_entropy, vss_store, runtime, logger)
 	}
 
 	/// Builds a [`Node`] instance with a [VSS] backend and according to the options
@@ -791,13 +801,18 @@ impl NodeBuilder {
 		fixed_headers: HashMap<String, String>,
 	) -> Result<Node, BuildError> {
 		let logger = setup_logger(&self.log_writer_config, &self.config)?;
+		let runtime = self.setup_runtime(&logger)?;
 		let builder = VssStoreBuilder::new(node_entropy, vss_url, store_id, self.config.network);
 		let vss_store = builder.build_with_fixed_headers(fixed_headers).map_err(|e| {
 			log_error!(logger, "Failed to setup VSS store: {}", e);
 			BuildError::KVStoreSetupFailed
 		})?;
+		runtime.block_on(vss_store.setup_schema_version()).map_err(|e| {
+			log_error!(logger, "Failed to setup VSS store: {}", e);
+			BuildError::KVStoreSetupFailed
+		})?;
 
-		self.build_with_store_and_logger(node_entropy, vss_store, logger)
+		self.build_with_store_runtime_and_logger(node_entropy, vss_store, runtime, logger)
 	}
 
 	/// Builds a [`Node`] instance with a [VSS] backend and according to the options
@@ -816,13 +831,18 @@ impl NodeBuilder {
 		header_provider: Arc<dyn VssHeaderProvider>,
 	) -> Result<Node, BuildError> {
 		let logger = setup_logger(&self.log_writer_config, &self.config)?;
+		let runtime = self.setup_runtime(&logger)?;
 		let builder = VssStoreBuilder::new(node_entropy, vss_url, store_id, self.config.network);
 		let vss_store = builder.build_with_header_provider(header_provider).map_err(|e| {
 			log_error!(logger, "Failed to setup VSS store: {}", e);
 			BuildError::KVStoreSetupFailed
 		})?;
+		runtime.block_on(vss_store.setup_schema_version()).map_err(|e| {
+			log_error!(logger, "Failed to setup VSS store: {}", e);
+			BuildError::KVStoreSetupFailed
+		})?;
 
-		self.build_with_store_and_logger(node_entropy, vss_store, logger)
+		self.build_with_store_runtime_and_logger(node_entropy, vss_store, runtime, logger)
 	}
 
 	/// Builds a [`Node`] instance according to the options previously configured.
