@@ -78,28 +78,34 @@ impl StaticInvoiceStore {
 
 		let (secondary_namespace, key) = Self::get_storage_location(invoice_slot, recipient_id);
 
-		let data = match KVStore::read(
+		KVStore::read(
 			&*self.kv_store,
 			STATIC_INVOICE_STORE_PRIMARY_NAMESPACE,
 			&secondary_namespace,
 			&key,
 		)
 		.await
-		{
-			Ok(data) => data,
-			Err(e) if e.kind() == lightning::io::ErrorKind::NotFound => return Ok(None),
-			Err(e) => return Err(e),
-		};
-		PersistedStaticInvoice::read(&mut &*data)
-			.map(|persisted_invoice| {
-				Some((persisted_invoice.invoice, persisted_invoice.request_path))
-			})
-			.map_err(|e| {
-				lightning::io::Error::new(
-					lightning::io::ErrorKind::InvalidData,
-					format!("Failed to parse static invoice: {:?}", e),
-				)
-			})
+		.and_then(|data| {
+			PersistedStaticInvoice::read(&mut &*data)
+				.map(|persisted_invoice| {
+					Some((persisted_invoice.invoice, persisted_invoice.request_path))
+				})
+				.map_err(|e| {
+					lightning::io::Error::new(
+						lightning::io::ErrorKind::InvalidData,
+						format!("Failed to parse static invoice: {:?}", e),
+					)
+				})
+		})
+		.or_else(
+			|e| {
+				if e.kind() == lightning::io::ErrorKind::NotFound {
+					Ok(None)
+				} else {
+					Err(e)
+				}
+			},
+		)
 	}
 
 	pub(crate) async fn handle_persist_static_invoice(
