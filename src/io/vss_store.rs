@@ -930,7 +930,7 @@ mod tests {
 			VssStoreBuilder::new(entropy, vss_base_url, rand_store_id, Network::Testnet)
 				.build_with_sigs_auth(HashMap::new())
 				.unwrap();
-		do_read_write_remove_list_persist(&vss_store);
+		do_read_write_remove_list_persist(&vss_store).await;
 	}
 
 	#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -946,7 +946,7 @@ mod tests {
 				.build_with_sigs_auth(HashMap::new())
 				.unwrap();
 
-		do_read_write_remove_list_persist(&vss_store);
+		do_read_write_remove_list_persist(&vss_store).await;
 		drop(vss_store)
 	}
 }
