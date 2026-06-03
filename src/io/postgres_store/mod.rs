@@ -8,7 +8,7 @@
 //! Objects related to [`PostgresStore`] live here.
 use std::collections::HashMap;
 use std::future::Future;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use lightning::io;
@@ -37,9 +37,6 @@ const SCHEMA_VERSION: u16 = 1;
 
 // The number of entries returned per page in paginated list operations.
 const PAGE_SIZE: usize = 50;
-
-// Keep this small while still allowing progress if one runtime worker blocks on sync store access.
-const INTERNAL_RUNTIME_WORKERS: usize = 2;
 
 fn sql_identifier(identifier: &str) -> io::Result<String> {
 	if identifier.is_empty() || identifier.contains('\0') {
@@ -91,8 +88,6 @@ macro_rules! query_with_retry {
 
 /// A [`KVStore`] implementation that writes to and reads from a [PostgreSQL] database.
 ///
-/// Maintains an internal runtime for the underlying tokio-postgres connection drivers.
-///
 /// [PostgreSQL]: https://www.postgresql.org
 pub struct PostgresStore {
 	inner: Arc<PostgresStoreInner>,
@@ -100,9 +95,6 @@ pub struct PostgresStore {
 	// Version counter to ensure that writes are applied in the correct order. It is assumed that read and list
 	// operations aren't sensitive to the order of execution.
 	next_write_version: AtomicU64,
-
-	// A store-internal runtime used for setup and connection driver tasks.
-	internal_runtime: Option<tokio::runtime::Runtime>,
 }
 
 // tokio::sync::Mutex (used for the DB client) contains UnsafeCell which opts out of
@@ -145,33 +137,12 @@ impl PostgresStore {
 		connection_string: String, db_name: Option<String>, kv_table_name: Option<String>,
 		certificate_pem: Option<String>, logger: Option<Arc<Logger>>,
 	) -> io::Result<Self> {
-		let internal_runtime = tokio::runtime::Builder::new_multi_thread()
-			.enable_all()
-			.thread_name_fn(|| {
-				static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
-				let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
-				format!("ldk-node-postgres-runtime-{}", id)
-			})
-			.worker_threads(INTERNAL_RUNTIME_WORKERS)
-			.max_blocking_threads(INTERNAL_RUNTIME_WORKERS)
-			.build()
-			.map_err(|e| {
-				io::Error::new(
-					io::ErrorKind::Other,
-					format!("Failed to build PostgreSQL runtime: {e}"),
-				)
-			})?;
 		let tls = Self::build_tls_connector(certificate_pem)?;
-		let runtime_handle = internal_runtime.handle();
-		let inner = tokio::task::block_in_place(|| {
-			runtime_handle.block_on(async {
-				PostgresStoreInner::new(connection_string, db_name, kv_table_name, tls, logger)
-					.await
-			})
-		})?;
+		let inner =
+			PostgresStoreInner::new(connection_string, db_name, kv_table_name, tls, logger).await?;
 		let inner = Arc::new(inner);
 		let next_write_version = AtomicU64::new(1);
-		Ok(Self { inner, next_write_version, internal_runtime: Some(internal_runtime) })
+		Ok(Self { inner, next_write_version })
 	}
 
 	fn build_tls_connector(certificate_pem: Option<String>) -> io::Result<PgTlsConnector> {
@@ -213,14 +184,6 @@ impl PostgresStore {
 		let inner_lock_ref = self.inner.get_inner_lock_ref(locking_key);
 
 		(inner_lock_ref, version)
-	}
-}
-
-impl Drop for PostgresStore {
-	fn drop(&mut self) {
-		if let Some(internal_runtime) = self.internal_runtime.take() {
-			internal_runtime.shutdown_background();
-		}
 	}
 }
 
@@ -289,15 +252,6 @@ impl KVStore for PostgresStore {
 		let secondary_namespace = secondary_namespace.to_string();
 		let inner = Arc::clone(&self.inner);
 		async move { inner.list_internal(&primary_namespace, &secondary_namespace).await }
-	}
-}
-
-impl PostgresStore {
-	fn internal_runtime(&self) -> io::Result<&tokio::runtime::Runtime> {
-		self.internal_runtime.as_ref().ok_or_else(|| {
-			debug_assert!(false, "Failed to access internal PostgreSQL runtime");
-			io::Error::new(io::ErrorKind::Other, "Failed to access internal PostgreSQL runtime")
-		})
 	}
 }
 
