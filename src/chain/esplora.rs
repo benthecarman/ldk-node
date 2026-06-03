@@ -127,7 +127,8 @@ impl EsploraChainSource {
 									&*self.kv_store,
 									&*self.logger,
 									|m| m.latest_onchain_wallet_sync_timestamp = unix_time_secs_opt,
-								)?;
+								)
+								.await?;
 								Ok(())
 							},
 							Err(e) => Err(e),
@@ -265,7 +266,8 @@ impl EsploraChainSource {
 						&*self.kv_store,
 						&*self.logger,
 						|m| m.latest_lightning_wallet_sync_timestamp = unix_time_secs_opt,
-					)?;
+					)
+					.await?;
 					Ok(())
 				},
 				Err(e) => {
@@ -347,7 +349,8 @@ impl EsploraChainSource {
 			SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
 		update_and_persist_node_metrics(&self.node_metrics, &*self.kv_store, &*self.logger, |m| {
 			m.latest_fee_rate_cache_update_timestamp = unix_time_secs_opt
-		})?;
+		})
+		.await?;
 
 		Ok(())
 	}

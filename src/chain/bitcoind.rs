@@ -204,6 +204,7 @@ impl BitcoindChainSource {
 								m.latest_onchain_wallet_sync_timestamp = unix_time_secs_opt;
 							},
 						)
+						.await
 						.unwrap_or_else(|e| {
 							log_error!(self.logger, "Failed to persist node metrics: {}", e);
 						});
@@ -451,7 +452,8 @@ impl BitcoindChainSource {
 		update_and_persist_node_metrics(&self.node_metrics, &*self.kv_store, &*self.logger, |m| {
 			m.latest_lightning_wallet_sync_timestamp = unix_time_secs_opt;
 			m.latest_onchain_wallet_sync_timestamp = unix_time_secs_opt;
-		})?;
+		})
+		.await?;
 
 		Ok(())
 	}
@@ -563,7 +565,8 @@ impl BitcoindChainSource {
 			SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
 		update_and_persist_node_metrics(&self.node_metrics, &*self.kv_store, &*self.logger, |m| {
 			m.latest_fee_rate_cache_update_timestamp = unix_time_secs_opt
-		})?;
+		})
+		.await?;
 
 		Ok(())
 	}

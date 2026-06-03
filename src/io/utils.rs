@@ -26,12 +26,12 @@ use lightning::routing::scoring::{
 	ChannelLiquidities, ProbabilisticScorer, ProbabilisticScoringDecayParameters,
 };
 use lightning::util::persist::{
-	migrate_kv_store_data, KVStore, KVStoreSync, KVSTORE_NAMESPACE_KEY_ALPHABET,
-	KVSTORE_NAMESPACE_KEY_MAX_LEN, NETWORK_GRAPH_PERSISTENCE_KEY,
-	NETWORK_GRAPH_PERSISTENCE_PRIMARY_NAMESPACE, NETWORK_GRAPH_PERSISTENCE_SECONDARY_NAMESPACE,
-	OUTPUT_SWEEPER_PERSISTENCE_KEY, OUTPUT_SWEEPER_PERSISTENCE_PRIMARY_NAMESPACE,
-	OUTPUT_SWEEPER_PERSISTENCE_SECONDARY_NAMESPACE, SCORER_PERSISTENCE_KEY,
-	SCORER_PERSISTENCE_PRIMARY_NAMESPACE, SCORER_PERSISTENCE_SECONDARY_NAMESPACE,
+	migrate_kv_store_data, KVStore, KVSTORE_NAMESPACE_KEY_ALPHABET, KVSTORE_NAMESPACE_KEY_MAX_LEN,
+	NETWORK_GRAPH_PERSISTENCE_KEY, NETWORK_GRAPH_PERSISTENCE_PRIMARY_NAMESPACE,
+	NETWORK_GRAPH_PERSISTENCE_SECONDARY_NAMESPACE, OUTPUT_SWEEPER_PERSISTENCE_KEY,
+	OUTPUT_SWEEPER_PERSISTENCE_PRIMARY_NAMESPACE, OUTPUT_SWEEPER_PERSISTENCE_SECONDARY_NAMESPACE,
+	SCORER_PERSISTENCE_KEY, SCORER_PERSISTENCE_PRIMARY_NAMESPACE,
+	SCORER_PERSISTENCE_SECONDARY_NAMESPACE,
 };
 use lightning::util::ser::{Readable, ReadableArgs, Writeable};
 use lightning_persister::fs_store::v1::FilesystemStore;
@@ -336,26 +336,26 @@ where
 }
 
 /// Take a write lock on `node_metrics`, apply `update`, and persist the result to `kv_store`.
-///
-/// The write lock is held across the KV-store write, preserving the invariant that readers only
-/// observe the mutation once it has been durably persisted (or the persist has failed).
-pub(crate) fn update_and_persist_node_metrics<L: Deref>(
+pub(crate) async fn update_and_persist_node_metrics<L: Deref>(
 	node_metrics: &RwLock<NodeMetrics>, kv_store: &DynStore, logger: L,
 	update: impl FnOnce(&mut NodeMetrics),
 ) -> Result<(), Error>
 where
 	L::Target: LdkLogger,
 {
-	let mut locked_node_metrics = node_metrics.write().expect("lock");
-	update(&mut *locked_node_metrics);
-	let data = locked_node_metrics.encode();
-	KVStoreSync::write(
+	let data = {
+		let mut locked_node_metrics = node_metrics.write().expect("lock");
+		update(&mut *locked_node_metrics);
+		locked_node_metrics.encode()
+	};
+	KVStore::write(
 		&*kv_store,
 		NODE_METRICS_PRIMARY_NAMESPACE,
 		NODE_METRICS_SECONDARY_NAMESPACE,
 		NODE_METRICS_KEY,
 		data,
 	)
+	.await
 	.map_err(|e| {
 		log_error!(
 			logger,

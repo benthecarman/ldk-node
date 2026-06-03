@@ -89,6 +89,7 @@ async fn sync_external_scores(
 			update_and_persist_node_metrics(&node_metrics, &*kv_store, logger, |m| {
 				m.latest_pathfinding_scores_sync_timestamp = Some(duration_since_epoch.as_secs());
 			})
+			.await
 			.unwrap_or_else(|e| {
 				log_error!(logger, "Persisting node metrics failed: {}", e);
 			});

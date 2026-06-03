@@ -556,6 +556,7 @@ impl Node {
 									Arc::clone(&bcast_logger),
 									|m| m.latest_node_announcement_broadcast_timestamp = unix_time_secs_opt,
 								)
+								.await
 								.unwrap_or_else(|e| {
 									log_error!(bcast_logger, "Persistence failed: {}", e);
 								});
