@@ -129,37 +129,6 @@ impl ElectrumChainSource {
 		let incremental_sync =
 			self.node_metrics.read().expect("lock").latest_onchain_wallet_sync_timestamp.is_some();
 
-		macro_rules! apply_wallet_update {
-			($update_res:expr, $now:expr) => {
-				match $update_res {
-					Ok(update) => match onchain_wallet.apply_update(update) {
-						Ok(()) => {
-							log_debug!(
-								self.logger,
-								"{} of on-chain wallet finished in {}ms.",
-								if incremental_sync { "Incremental sync" } else { "Sync" },
-								$now.elapsed().as_millis()
-							);
-							let unix_time_secs_opt = SystemTime::now()
-								.duration_since(UNIX_EPOCH)
-								.ok()
-								.map(|d| d.as_secs());
-							update_and_persist_node_metrics(
-								&self.node_metrics,
-								&*self.kv_store,
-								&*self.logger,
-								|m| m.latest_onchain_wallet_sync_timestamp = unix_time_secs_opt,
-							)
-							.await?;
-							Ok(())
-						},
-						Err(e) => Err(e),
-					},
-					Err(e) => Err(e),
-				}
-			};
-		}
-
 		let cached_txs = onchain_wallet.get_cached_txs();
 
 		let res = if incremental_sync {
@@ -169,17 +138,59 @@ impl ElectrumChainSource {
 
 			let now = Instant::now();
 			let update_res: Result<BdkUpdate, Error> = incremental_sync_fut.await.map(|u| u.into());
-			apply_wallet_update!(update_res, now)
+			self.apply_onchain_wallet_update(
+				onchain_wallet.as_ref(),
+				incremental_sync,
+				update_res,
+				now,
+			)
+			.await
 		} else {
 			let full_scan_request = onchain_wallet.get_full_scan_request();
 			let full_scan_fut =
 				electrum_client.get_full_scan_wallet_update(full_scan_request, cached_txs);
 			let now = Instant::now();
 			let update_res: Result<BdkUpdate, Error> = full_scan_fut.await.map(|u| u.into());
-			apply_wallet_update!(update_res, now)
+			self.apply_onchain_wallet_update(
+				onchain_wallet.as_ref(),
+				incremental_sync,
+				update_res,
+				now,
+			)
+			.await
 		};
 
 		res
+	}
+
+	async fn apply_onchain_wallet_update(
+		&self, onchain_wallet: &Wallet, incremental_sync: bool,
+		update_res: Result<BdkUpdate, Error>, now: Instant,
+	) -> Result<(), Error> {
+		match update_res {
+			Ok(update) => match onchain_wallet.apply_update(update) {
+				Ok(()) => {
+					log_debug!(
+						self.logger,
+						"{} of on-chain wallet finished in {}ms.",
+						if incremental_sync { "Incremental sync" } else { "Sync" },
+						now.elapsed().as_millis()
+					);
+					let unix_time_secs_opt =
+						SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+					update_and_persist_node_metrics(
+						&self.node_metrics,
+						&*self.kv_store,
+						&*self.logger,
+						|m| m.latest_onchain_wallet_sync_timestamp = unix_time_secs_opt,
+					)
+					.await?;
+					Ok(())
+				},
+				Err(e) => Err(e),
+			},
+			Err(e) => Err(e),
+		}
 	}
 
 	pub(crate) async fn sync_lightning_wallet(
