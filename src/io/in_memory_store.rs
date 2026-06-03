@@ -58,6 +58,7 @@ impl InMemoryStore {
 		let outer_e = persisted_lock.entry(prefixed.clone()).or_insert(HashMap::new());
 		outer_e.insert(key.to_string(), buf);
 
+		// Only assign creation time on first write (not on update)
 		let mut ct_lock = self.creation_times.lock().unwrap();
 		let ct_ns = ct_lock.entry(prefixed).or_insert(HashMap::new());
 		ct_ns
@@ -77,6 +78,7 @@ impl InMemoryStore {
 			outer_ref.remove(&key.to_string());
 		}
 
+		// Remove creation time entry
 		let mut ct_lock = self.creation_times.lock().unwrap();
 		if let Some(ct_ns) = ct_lock.get_mut(&prefixed) {
 			ct_ns.remove(key);
@@ -105,21 +107,18 @@ impl KVStore for InMemoryStore {
 		let res = self.read_internal(&primary_namespace, &secondary_namespace, &key);
 		async move { res }
 	}
-
 	fn write(
 		&self, primary_namespace: &str, secondary_namespace: &str, key: &str, buf: Vec<u8>,
 	) -> impl Future<Output = Result<(), io::Error>> + 'static + Send {
 		let res = self.write_internal(&primary_namespace, &secondary_namespace, &key, buf);
 		async move { res }
 	}
-
 	fn remove(
 		&self, primary_namespace: &str, secondary_namespace: &str, key: &str, lazy: bool,
 	) -> impl Future<Output = Result<(), io::Error>> + 'static + Send {
 		let res = self.remove_internal(&primary_namespace, &secondary_namespace, &key, lazy);
 		async move { res }
 	}
-
 	fn list(
 		&self, primary_namespace: &str, secondary_namespace: &str,
 	) -> impl Future<Output = Result<Vec<String>, io::Error>> + 'static + Send {
@@ -166,9 +165,11 @@ impl InMemoryStore {
 			},
 		};
 
+		// Build list of (key, sort_order) sorted by sort_order DESC (newest first).
 		let mut entries: Vec<(&String, &u64)> = ct_ns.iter().collect();
 		entries.sort_by(|a, b| b.1.cmp(a.1));
 
+		// Apply page token filter
 		let start_idx = if let Some(ref token) = page_token {
 			let token_sort_order: u64 = token
 				.as_str()
@@ -183,6 +184,7 @@ impl InMemoryStore {
 			0
 		};
 
+		// Fetch one extra entry beyond page size to determine whether a next page exists.
 		let mut page: Vec<(&String, &u64)> =
 			entries[start_idx..].iter().take(IN_MEMORY_PAGE_SIZE + 1).cloned().collect();
 
