@@ -5,13 +5,14 @@
 // http://opensource.org/licenses/MIT>, at your option. You may not use this file except in
 // accordance with one or both of these licenses.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
 
-use lightning::util::persist::KVStore;
+use lightning::util::persist::{KVStore, PageToken, PaginatedKVStore};
 use lightning::util::ser::{Readable, Writeable};
 
+use crate::config::DATA_STORE_READ_CONCURRENCY_LIMIT;
 use crate::logger::{log_error, LdkLogger};
 use crate::types::DynStore;
 use crate::Error;
@@ -179,6 +180,104 @@ where
 		self.objects.lock().expect("lock").values().filter(f).cloned().collect::<Vec<SO>>()
 	}
 
+	/// Returns a page of objects read from the underlying store, ordered from most recently
+	/// created to least recently created, together with a token that can be passed to a
+	/// subsequent call to retrieve the next page.
+	pub(crate) async fn list_page(
+		&self, page_token: Option<PageToken>,
+	) -> Result<(Vec<SO>, Option<PageToken>), Error> {
+		let response = PaginatedKVStore::list_paginated(
+			&*self.kv_store,
+			&self.primary_namespace,
+			&self.secondary_namespace,
+			page_token,
+		)
+		.await
+		.map_err(|e| {
+			log_error!(
+				self.logger,
+				"Listing object data under {}/{} failed due to: {}",
+				&self.primary_namespace,
+				&self.secondary_namespace,
+				e
+			);
+			Error::PersistenceFailed
+		})?;
+
+		// Read the page's objects through a sliding window: keep up to
+		// `DATA_STORE_READ_CONCURRENCY_LIMIT` reads in flight and await them in key order to
+		// preserve the page's newest-first ordering. The page size is implementation-defined,
+		// so we can't rely on pages being small.
+		let mut spawn_iter = response.keys.iter();
+		let mut read_handles = VecDeque::with_capacity(DATA_STORE_READ_CONCURRENCY_LIMIT);
+		for key in spawn_iter.by_ref().take(DATA_STORE_READ_CONCURRENCY_LIMIT) {
+			read_handles.push_back(tokio::spawn(KVStore::read(
+				&*self.kv_store,
+				&self.primary_namespace,
+				&self.secondary_namespace,
+				key,
+			)));
+		}
+
+		let mut objects = Vec::with_capacity(response.keys.len());
+		for key in response.keys.iter() {
+			let handle = read_handles.pop_front().expect("read spawned for each key");
+
+			// Refill the window for every read we await, if keys remain.
+			if let Some(next_key) = spawn_iter.next() {
+				read_handles.push_back(tokio::spawn(KVStore::read(
+					&*self.kv_store,
+					&self.primary_namespace,
+					&self.secondary_namespace,
+					next_key,
+				)));
+			}
+
+			let read_res = handle.await.map_err(|e| {
+				log_error!(
+					self.logger,
+					"Reading object data for key {}/{}/{} failed due to: {}",
+					&self.primary_namespace,
+					&self.secondary_namespace,
+					key,
+					e
+				);
+				Error::PersistenceFailed
+			})?;
+			let data = match read_res {
+				Ok(data) => data,
+				// The object was removed after we listed the page's keys. Skip it rather than
+				// failing the page.
+				Err(e) if e.kind() == lightning::io::ErrorKind::NotFound => continue,
+				Err(e) => {
+					log_error!(
+						self.logger,
+						"Reading object data for key {}/{}/{} failed due to: {}",
+						&self.primary_namespace,
+						&self.secondary_namespace,
+						key,
+						e
+					);
+					return Err(Error::PersistenceFailed);
+				},
+			};
+			let object = SO::read(&mut &data[..]).map_err(|e| {
+				log_error!(
+					self.logger,
+					"Failed to deserialize object data for key {}/{}/{}: {}",
+					&self.primary_namespace,
+					&self.secondary_namespace,
+					key,
+					e
+				);
+				Error::PersistenceFailed
+			})?;
+			objects.push(object);
+		}
+
+		Ok((objects, response.next_page_token))
+	}
+
 	async fn persist(&self, object: &SO) -> Result<(), Error> {
 		let (store_key, data) = Self::encode_object(object);
 		self.persist_encoded(store_key, data).await
@@ -336,6 +435,44 @@ mod tests {
 			store,
 			logger,
 		)
+	}
+
+	#[tokio::test]
+	async fn list_page_paginates_in_reverse_creation_order() {
+		let store: Arc<DynStore> = Arc::new(DynStoreWrapper(InMemoryStore::new()));
+		let logger = Arc::new(TestLogger::new());
+		let data_store: DataStore<TestObject, Arc<TestLogger>> = DataStore::new(
+			Vec::new(),
+			"datastore_test_primary".to_string(),
+			"datastore_test_secondary".to_string(),
+			Arc::clone(&store),
+			logger,
+		);
+
+		// Insert more objects than fit in a single page to exercise the pagination loop.
+		let num_objects = 120u32;
+		for i in 0..num_objects {
+			let id = TestObjectId { id: i.to_be_bytes() };
+			data_store.insert(TestObject { id, data: [7u8; 3] }).await.unwrap();
+		}
+
+		let mut listed = Vec::with_capacity(num_objects as usize);
+		let mut page_token = None;
+		loop {
+			let (page, next_page_token) = data_store.list_page(page_token).await.unwrap();
+			assert!(!page.is_empty());
+			listed.extend(page);
+			page_token = next_page_token;
+			if page_token.is_none() {
+				break;
+			}
+		}
+
+		let expected: Vec<TestObject> = (0..num_objects)
+			.rev()
+			.map(|i| TestObject { id: TestObjectId { id: i.to_be_bytes() }, data: [7u8; 3] })
+			.collect();
+		assert_eq!(listed, expected);
 	}
 
 	#[tokio::test]

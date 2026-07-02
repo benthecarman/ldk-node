@@ -137,6 +137,8 @@ interface Node {
 	void remove_payment([ByRef]PaymentId payment_id);
 	BalanceDetails list_balances();
 	sequence<PaymentDetails> list_payments();
+	[Throws=NodeError]
+	PaymentDetailsPage list_payments_paginated(PageToken? page_token);
 	sequence<PeerDetails> list_peers();
 	sequence<ChannelDetails> list_channels();
 	NetworkGraph network_graph();
@@ -261,6 +263,8 @@ enum PaymentFailureReason {
 
 typedef dictionary PaymentDetails;
 
+typedef dictionary PaymentDetailsPage;
+
 [Remote]
 dictionary RouteParametersConfig {
 	u64? max_total_routing_fee_msat;
@@ -375,6 +379,9 @@ typedef string Address;
 
 [Custom]
 typedef string OfferId;
+
+[Custom]
+typedef string PageToken;
 
 [Custom]
 typedef string PaymentId;

@@ -156,6 +156,7 @@ use lightning::ln::peer_handler::CustomMessageHandler;
 use lightning::routing::gossip::NodeAlias;
 use lightning::sign::EntropySource;
 use lightning::util::persist::KVStore;
+pub use lightning::util::persist::PageToken;
 use lightning::util::wallet_utils::{Input, Wallet as LdkWallet};
 use lightning_background_processor::process_events_async;
 pub use lightning_invoice;
@@ -252,6 +253,16 @@ pub struct Node {
 	hrn_resolver: HRNResolver,
 	#[cfg(cycle_tests)]
 	_leak_checker: LeakChecker,
+}
+
+/// A page of payments returned from a paginated listing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct PaymentDetailsPage {
+	/// Payments in this page, ordered from most recently created to least recently created.
+	pub payments: Vec<PaymentDetails>,
+	/// Token to pass to the next call to continue listing, if another page exists.
+	pub next_page_token: Option<PageToken>,
 }
 
 impl Node {
@@ -2133,6 +2144,20 @@ impl Node {
 	/// Retrieves all payments.
 	pub fn list_payments(&self) -> Vec<PaymentDetails> {
 		self.payment_store.list_filter(|_| true)
+	}
+
+	/// Retrieves a page of payments from the underlying paginated store, ordered from most
+	/// recently created to least recently created.
+	///
+	/// Pass `None` to start listing from the most recently created payment. If the returned
+	/// [`PaymentDetailsPage::next_page_token`] is `Some`, pass it to a subsequent call to
+	/// retrieve the next page.
+	pub fn list_payments_paginated(
+		&self, page_token: Option<PageToken>,
+	) -> Result<PaymentDetailsPage, Error> {
+		let (payments, next_page_token) =
+			self.runtime.block_on(self.payment_store.list_page(page_token))?;
+		Ok(PaymentDetailsPage { payments, next_page_token })
 	}
 
 	/// Retrieves a list of known peers.

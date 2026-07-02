@@ -16,6 +16,8 @@
 - `EsploraSyncConfig` and `ElectrumSyncConfig` now support `force_wallet_full_scan`. When set,
   the on-chain wallet keeps using BDK `full_scan` instead of incremental sync until a full scan
   succeeds, allowing restored wallets to rediscover funds sent to previously-unknown addresses.
+- A new `Node::list_payments_paginated` method allows retrieving payments page-by-page, ordered
+  from most recently created to least recently created, instead of all at once.
 
 ## Bug Fixes and Improvements
 - Building a fresh node against a Bitcoin Core RPC or REST chain source that fails to return the

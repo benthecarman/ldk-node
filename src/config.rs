@@ -64,6 +64,10 @@ pub(crate) const BDK_CLIENT_STOP_GAP: usize = 20;
 // The number of concurrent requests made against the API provider.
 pub(crate) const BDK_CLIENT_CONCURRENCY: usize = 4;
 
+// The maximum number of object reads we keep in flight at once when reading a page from the
+// data store.
+pub(crate) const DATA_STORE_READ_CONCURRENCY_LIMIT: usize = 10;
+
 // The timeout after which we abandon retrying failed payments.
 pub(crate) const LDK_PAYMENT_RETRY_TIMEOUT: Duration = Duration::from_secs(10);
 

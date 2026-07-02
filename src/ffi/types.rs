@@ -149,7 +149,7 @@ pub use crate::entropy::{generate_entropy_mnemonic, NodeEntropy, WordCount};
 use crate::error::Error;
 pub use crate::liquidity::LSPS1OrderStatus;
 pub use crate::logger::{LogLevel, LogRecord, LogWriter};
-use crate::{hex_utils, SocketAddress, UserChannelId};
+use crate::{hex_utils, PageToken, SocketAddress, UserChannelId};
 
 uniffi::custom_type!(PublicKey, String, {
 	remote,
@@ -890,6 +890,16 @@ uniffi::custom_type!(OfferId, String, {
 	},
 	lower: |obj| {
 		hex_utils::to_string(&obj.0)
+	},
+});
+
+uniffi::custom_type!(PageToken, String, {
+	remote,
+	try_lift: |val| {
+		Ok(PageToken::new(val))
+	},
+	lower: |obj| {
+		obj.to_string()
 	},
 });
 
